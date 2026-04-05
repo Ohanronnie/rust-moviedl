@@ -38,7 +38,8 @@ fn main() {
     fs::create_dir_all(&args.output).unwrap();
 
     let client = Client::builder()
-        .redirect(reqwest::redirect::Policy::none())
+        .redirect(reqwest::redirect::Policy::limited(10))
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
         .danger_accept_invalid_certs(true)
         .build()
         .unwrap();

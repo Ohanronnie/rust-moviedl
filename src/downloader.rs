@@ -11,16 +11,22 @@ use std::{
 };
 
 pub fn download_file(client: &Client, url: &str, chunks: usize, output_dir: &str, test: bool) {
-    let size = get_file_size(client, url);
     let filename = url.split('/').last().unwrap_or("file.bin");
     let full_path = format!("{}/{}", output_dir, filename);
 
-    println!("\n📦 File: {}", filename);
-    println!("📏 Size: {:.2} MB", size as f64 / 1024.0 / 1024.0);
-
-    if test && true {
+    if test {
+        println!("\n🧪 Test mode: skipping download for {}", filename);
         return;
     }
+
+    let size = get_file_size(client, url);
+    if size == 0 {
+        eprintln!("❌ Could not determine file size for URL, skipping: {}", url);
+        return;
+    }
+
+    println!("\n📦 File: {}", filename);
+    println!("📏 Size: {:.2} MB", size as f64 / 1024.0 / 1024.0);
 
     let meta_path = full_path.clone();
     let meta = load_meta(&meta_path).unwrap_or_else(|| MetaData {
@@ -89,17 +95,38 @@ pub fn download_file(client: &Client, url: &str, chunks: usize, output_dir: &str
 }
 
 fn get_file_size(client: &Client, url: &str) -> u64 {
-    loop {
+    for _ in 0..10 {
         if let Ok(resp) = client.head(url).send() {
             if let Some(size) = resp.headers().get(header::CONTENT_LENGTH) {
                 if let Ok(size) = size.to_str().unwrap_or("0").parse::<u64>() {
-                    return size;
+                    if size > 0 {
+                        return size;
+                    }
+                }
+            }
+        }
+
+        if let Ok(resp) = client
+            .get(url)
+            .header(header::RANGE, "bytes=0-0")
+            .send()
+        {
+            if let Some(range) = resp.headers().get(header::CONTENT_RANGE) {
+                if let Ok(range) = range.to_str() {
+                    if let Some((_, total)) = range.rsplit_once('/') {
+                        if let Ok(total) = total.parse::<u64>() {
+                            if total > 0 {
+                                return total;
+                            }
+                        }
+                    }
                 }
             }
         }
         println!("Retrying HEAD request...");
         thread::sleep(std::time::Duration::from_secs(2));
     }
+    0
 }
 
 fn download_chunk(
@@ -155,7 +182,7 @@ fn download_chunk(
                 if downloaded >= total {
                     let mut m = meta.lock().unwrap();
                     m.progress[chunk_index] = true;
-                    save_meta(&meta_path, &m);
+                    let _ = save_meta(&meta_path, &m);
                 }
 
                 break;
